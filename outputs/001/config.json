@@ -1,0 +1,7 @@
+{
+    "binary": true,
+    "dataset": 16000,
+    "epochs": 30,
+    "hidden_size": 256,
+    "commutative_loss": false
+}

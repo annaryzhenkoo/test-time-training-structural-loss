@@ -1,0 +1,8 @@
+{
+    "model_type": "transformer",
+    "dataset": "wiki",
+    "dataset_size": 120000,
+    "epochs": 30,
+    "hidden_size": 512,
+    "commutative_loss": true
+}
