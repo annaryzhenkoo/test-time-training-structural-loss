@@ -161,7 +161,7 @@ def train_commutative_function(model, dataloader, loss_fn, optimizer, vocab: Voc
 
     return loss, accuracy, exact_match
 
-def train_rnn_model(model, trainDataSet, testDataSet, vocab:Vocab, exp_name:str, trainCommativefunction: bool = False,
+def train_model(model, trainDataSet, testDataSet, vocab:Vocab, exp_name:str, trainCommativefunction: bool = False,
                     num_epochs: int = 200, patience: int = 50, min_delta: float = 1e-4):
 
     path = f"outputs/{exp_name}"
@@ -183,7 +183,7 @@ def train_rnn_model(model, trainDataSet, testDataSet, vocab:Vocab, exp_name:str,
                                 collate_fn=partial(collate_fn,vocab=vocab),shuffle=True)
 
     test_loader  = DataLoader(testDataSet,  batch_size=128,
-                              collate_fn=partial(collate_fn, vocab= vocab), shuffle=False)
+                              collate_fn=partial(collate_fn, vocab= vocab), shuffle=True)
 
     best_val_loss = np.inf
     bad_epochs = 0

@@ -14,8 +14,11 @@ def dataset_generation(dataset_size: int, mode: str, num_digits: int):
 
         if mode == "binary":
             a = bin(a_num)[2:]
+            a = a[::-1]
             b = bin(b_num)[2:]
+            b = b[::-1]
             result = bin(sum_num)[2:]
+            result = result[::-1] #reverse
         else:
             a = str(a_num)
             b = str(b_num)
@@ -33,3 +36,4 @@ def dataset_generation(dataset_size: int, mode: str, num_digits: int):
         index=False
     )
 
+    return f"data/data_dn{num_digits}_ds{dataset_size}_m{mode}.csv"

@@ -20,9 +20,10 @@ def generate_answer(model, example: str, vocab: Vocab, mode: str,max_new_tokens:
             h_t, out = model(inp, h_0=h_t)
             next_id = out[:, -1, :].argmax(-1).item()
 
-    result = ""
 
     if mode == "binary":
-
-
-    return "".join(generated)
+        generated = generated[::-1]
+        generated = "".join(generated)
+        return int(generated, 2)
+    else:
+        return int("".join(generated))

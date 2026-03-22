@@ -5,9 +5,10 @@ from torch.utils.data import Dataset
 
 class Vocab:
     def __init__(self, mode="decimal"):
+
         if mode == "decimal":
             digits = [str(i) for i in range(10)]
-        elif mode == "binary":
+        else:
             digits = ["0","1"]
 
         self.symbol2id = {}
