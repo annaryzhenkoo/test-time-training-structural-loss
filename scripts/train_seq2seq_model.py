@@ -39,7 +39,8 @@ model, vocab, train_dataset, valid_dataset, valid_loader, device = train_model(
 #from src.models.seq2seq_gru import Seq2SeqGRUWithTTT
 
 #model = Seq2SeqGRUWithTTT(vocab=vocab)
-#state_dict = torch.load("outputs/seq2seq_with_gru.pt", map_location="cpu")
+#state_dict = torch.load("outputs/best_model (4).pt", map_location="cpu")
 #model.load_state_dict(state_dict)
 
 evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation)
+evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation)

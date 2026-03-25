@@ -114,3 +114,66 @@ def get_value_range_by_num_digits(num_digits: int, representation: str):
 
     else:
         raise ValueError(f"Unknown representation: {representation}")
+
+
+def exact_match_accuracy_with_ttt_online(
+    model: Seq2SeqGRUWithTTT,
+    dataloader,
+    vocab: Vocab,
+    representation="binary",
+    device="cpu",
+    max_decode_len=32,
+    ttt_steps=5,
+    ttt_lr=1e-2,
+    restore_after_eval=True,
+):
+    """
+    TTT-online:
+    - no reset before each example
+    - TTT weights are updated sequentially across evaluation examples
+    - after adapting on example i, updated TTT is used for example i+1
+
+    If restore_after_eval=True, original TTT weights are restored at the end.
+    """
+    model.eval()
+    correct = 0
+    total = 0
+
+    base_ttt_state = copy.deepcopy(model.ttt.state_dict())
+
+    for batch in dataloader:
+        a_list = batch["a"]
+        b_list = batch["b"]
+        sums = batch["sum_"]
+
+        for i in range(len(a_list)):
+            # IMPORTANT:
+            # no reset here; TTT keeps evolving across examples
+
+            adapted_hidden = adapt_ttt_for_one_example(
+                model=model,
+                a=a_list[i],
+                b=b_list[i],
+                vocab=vocab,
+                representation=representation,
+                device=device,
+                ttt_steps=ttt_steps,
+                ttt_lr=ttt_lr,
+            )
+
+            pred_ids = model.greedy_decode_from_hidden(
+                adapted_hidden,
+                max_len=max_decode_len,
+                device=device
+            )
+            pred_tokens = decode_tokens(pred_ids, vocab)
+            pred_value = parse_tokens_to_int(pred_tokens, representation)
+
+            if pred_value == sums[i]:
+                correct += 1
+            total += 1
+
+    if restore_after_eval:
+        model.ttt.load_state_dict(base_ttt_state)
+
+    return correct / total if total > 0 else 0.0
