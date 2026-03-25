@@ -14,3 +14,11 @@ The goal is to analyze how the choice and placement of the inner loss (joint tra
 - Controlled OOD setting via extrapolation to longer numeric sequences  
 - Comparison of heuristic and structure-aware inner loss functions  
 - Evaluation across different Test-Time Training regimes
+
+### Dataset Generation
+
+The `dataset_generation.py` script generates synthetic addition datasets of configurable size, number of digits, and representation (decimal or binary).
+
+Example:
+```bash
+python dataset_generation.py --dataset-size 10000 --mode decimal --num-digits 3

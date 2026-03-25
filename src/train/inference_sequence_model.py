@@ -1,4 +1,4 @@
-from src.data import *
+from src.data.data_sequence_model import *
 
 def generate_answer(model, example: str, vocab: Vocab, mode: str,max_new_tokens: int = 10):
     model.eval()

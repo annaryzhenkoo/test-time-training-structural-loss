@@ -2,7 +2,7 @@ import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from src.data import *
+from src.data.data_sequence_model import *
 from functools import partial
 import torch.nn.functional as F
 import json

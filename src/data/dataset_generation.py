@@ -7,6 +7,7 @@ def dataset_generation(dataset_size: int, mode: str, num_digits: int):
     low = 0 if num_digits == 3 else 10 ** (num_digits - 1)
     high = 10 ** num_digits - 1
 
+
     for _ in range(dataset_size):
         a_num = random.randint(low, high)
         b_num = random.randint(low, high)
