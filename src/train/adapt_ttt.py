@@ -5,15 +5,16 @@ from src.models.seq2seq_gru import *
 
 
 def adapt_ttt_for_one_example(
-    model: Seq2SeqGRUWithTTT,
-    a: int,
-    b: int,
-    vocab: Vocab,
-    representation: str,
-    device: str = "cpu",
-    ttt_steps: int = 5,
-    ttt_lr: float = 1e-2,
-    inner_function: str = "commutative",
+        model: Seq2SeqGRUWithTTT,
+        a: int,
+        b: int,
+        vocab: Vocab,
+        representation: str,
+        device: str = "cpu",
+        ttt_steps: int = 5,
+        ttt_lr: float = 1e-2,
+        inner_function: str = "commutative",
+        similarity_loss: str = "normalized_l2",
 ):
     """
     Adapt only TTT block for one example using structural inner loss.
@@ -22,8 +23,18 @@ def adapt_ttt_for_one_example(
       1. "commutative"
          enforce TTT(h(a,b)) == TTT(h(b,a))
 
-      2. "zero_identity"
+      2. "zero_commutativity"
          enforce TTT(h(a,0)) == TTT(h(0,a))
+
+    Supported similarity_loss:
+      1. "normalized_l2"
+         normalize both vectors, then minimize L2 distance
+
+      2. "cosine"
+         maximize cosine similarity
+
+      3. "smooth_l1"
+         minimize smooth L1 distance
 
     Returns:
         adapted hidden state for the original pair (a, b)
@@ -42,18 +53,36 @@ def adapt_ttt_for_one_example(
         src_len = src_len.to(device)
 
         with torch.no_grad():
-            h = model.encode(src, src_len)   # expected shape: (1, 1, H)
+            h = model.encode(src, src_len)  # expected shape: (1, 1, H)
         return h
+
+    def compute_similarity_loss(z_left, z_right, loss_type: str):
+        if loss_type == "normalized_l2":
+            z_left = F.normalize(z_left, dim=-1)
+            z_right = F.normalize(z_right, dim=-1)
+            return ((z_left - z_right) ** 2).mean()
+
+        elif loss_type == "cosine":
+            return 1.0 - F.cosine_similarity(z_left, z_right, dim=-1).mean()
+
+        elif loss_type == "smooth_l1":
+            return F.smooth_l1_loss(z_left, z_right)
+
+        else:
+            raise ValueError(
+                f"Unknown similarity_loss='{loss_type}'. "
+                f"Supported values: 'normalized_l2', 'cosine', 'smooth_l1'"
+            )
 
     # original hidden for final decoding
     h_ab_original = encode_pair(a, b)
 
     if inner_function == "commutative":
-        h_left = encode_pair(a, b)   # h_ab
+        h_left = encode_pair(a, b)  # h_ab
         h_right = encode_pair(b, a)  # h_ba
 
     elif inner_function == "zero_commutativity":
-        h_left = encode_pair(a, 0)   # h_a0
+        h_left = encode_pair(a, 0)  # h_a0
         h_right = encode_pair(0, a)  # h_0a
 
     else:
@@ -70,11 +99,7 @@ def adapt_ttt_for_one_example(
         z_left = model.ttt(h_left)
         z_right = model.ttt(h_right)
 
-        # normalize before comparison
-        z_left = F.normalize(z_left, dim=-1)
-        z_right = F.normalize(z_right, dim=-1)
-
-        inner_loss = ((z_left - z_right) ** 2).mean()
+        inner_loss = compute_similarity_loss(z_left, z_right, similarity_loss)
         inner_loss.backward()
 
         torch.nn.utils.clip_grad_norm_(model.ttt.parameters(), max_norm=1.0)

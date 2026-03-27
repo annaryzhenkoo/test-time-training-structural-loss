@@ -47,16 +47,9 @@ model.load_state_dict(state_dict)
 # evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation)
 
 print("Steps 5")
-print("Inner loss for TTT: commutative")
 evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation,
-           ttt_steps=10, inner_loss="commutative")
+           ttt_steps=5)
 evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation,
-           ttt_steps=10, inner_loss="commutative")
+           ttt_steps=5)
 
 
-print("Steps 5")
-print("Inner loss for TTT: zero_commutativity")
-evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation,
-           ttt_steps=10, inner_loss="zero_commutativity")
-evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation,
-           ttt_steps=10, inner_loss="zero_commutativity")

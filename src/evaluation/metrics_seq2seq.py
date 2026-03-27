@@ -3,7 +3,29 @@ from src.data.datasets_seq2seq import *
 from src.train.adapt_ttt import adapt_ttt_for_one_example
 import copy
 
+def token_accuracy(logits, targets, pad_id):
+    preds = logits.argmax(dim=-1)
+    mask = targets != pad_id
+    correct = ((preds == targets) & mask).sum().item()
+    total = mask.sum().item()
+    return correct / total if total > 0 else 0.0
 
+def get_value_range_by_num_digits(num_digits: int, representation: str):
+    if num_digits < 1:
+        raise ValueError("num_digits must be >= 1")
+
+    if representation == "decimal":
+        if num_digits == 1:
+            return 0, 9
+        return 10 ** (num_digits - 1), 10 ** num_digits - 1
+
+    elif representation == "binary":
+        if num_digits == 1:
+            return 0, 1
+        return 10 ** (num_digits - 1), 10 ** num_digits - 1
+
+    else:
+        raise ValueError(f"Unknown representation: {representation}")
 
 @torch.no_grad()
 def exact_match_accuracy(model, dataloader, vocab: Vocab, representation="binary", device="cpu", max_decode_len=32):
@@ -35,7 +57,6 @@ def exact_match_accuracy(model, dataloader, vocab: Vocab, representation="binary
 
     return correct / total if total > 0 else 0.0
 
-
 def exact_match_accuracy_with_ttt(
     model: Seq2SeqGRUWithTTT,
     dataloader,
@@ -45,10 +66,14 @@ def exact_match_accuracy_with_ttt(
     max_decode_len=32,
     ttt_steps=5,
     ttt_lr=1e-2,
+    inner_function="commutative",
+    similarity_loss="normalized_l2",
 ):
     """
-    for each example adapt TTT, use hidden state for decoding
-    reset TTT
+    For each example:
+    - reset TTT
+    - adapt TTT on this example
+    - decode from adapted hidden state
     """
     model.eval()
     correct = 0
@@ -74,6 +99,8 @@ def exact_match_accuracy_with_ttt(
                 device=device,
                 ttt_steps=ttt_steps,
                 ttt_lr=ttt_lr,
+                inner_function=inner_function,
+                similarity_loss=similarity_loss,
             )
 
             pred_ids = model.greedy_decode_from_hidden(
@@ -93,30 +120,6 @@ def exact_match_accuracy_with_ttt(
 
     return correct / total if total > 0 else 0.0
 
-def token_accuracy(logits, targets, pad_id):
-    preds = logits.argmax(dim=-1)
-    mask = targets != pad_id
-    correct = ((preds == targets) & mask).sum().item()
-    total = mask.sum().item()
-    return correct / total if total > 0 else 0.0
-
-def get_value_range_by_num_digits(num_digits: int, representation: str):
-    if num_digits < 1:
-        raise ValueError("num_digits must be >= 1")
-
-    if representation == "decimal":
-        if num_digits == 1:
-            return 0, 9
-        return 10 ** (num_digits - 1), 10 ** num_digits - 1
-
-    elif representation == "binary":
-        if num_digits == 1:
-            return 0, 1
-        return 10 ** (num_digits - 1), 10 ** num_digits - 1
-
-    else:
-        raise ValueError(f"Unknown representation: {representation}")
-
 
 def exact_match_accuracy_with_ttt_online(
     model: Seq2SeqGRUWithTTT,
@@ -127,6 +130,8 @@ def exact_match_accuracy_with_ttt_online(
     max_decode_len=32,
     ttt_steps=5,
     ttt_lr=1e-2,
+    inner_function="commutative",
+    similarity_loss="normalized_l2",
     restore_after_eval=True,
 ):
     """
@@ -149,9 +154,7 @@ def exact_match_accuracy_with_ttt_online(
         sums = batch["sum_"]
 
         for i in range(len(a_list)):
-            # IMPORTANT:
-            # no reset here; TTT keeps evolving across examples
-
+            # no reset here; online TTT
             adapted_hidden = adapt_ttt_for_one_example(
                 model=model,
                 a=a_list[i],
@@ -161,6 +164,8 @@ def exact_match_accuracy_with_ttt_online(
                 device=device,
                 ttt_steps=ttt_steps,
                 ttt_lr=ttt_lr,
+                inner_function=inner_function,
+                similarity_loss=similarity_loss,
             )
 
             pred_ids = model.greedy_decode_from_hidden(

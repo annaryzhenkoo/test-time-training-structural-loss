@@ -25,7 +25,6 @@ def evaluation(
     ttt_lr: float = 1e-2,
     batch_size: int = 128,
     max_decode_len: int = 140,
-    inner_loss: str = "commutative"
 ):
     print(f"Evaluation on {num_digits} digits")
 
@@ -44,7 +43,6 @@ def evaluation(
     )
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.PAD_ID)
-
     model.eval()
 
     loss_sum = 0.0
@@ -88,157 +86,195 @@ def evaluation(
     print(f"Token accuracy with teacher forcing: {avg_acc:.6f}")
     print(f"Exact match without teacher forcing: {exact_no_ttt:.6f}")
 
+    results = {
+        "no_ttt": {
+            "loss": avg_loss,
+            "token_accuracy": avg_acc,
+            "exact_match": exact_no_ttt,
+        },
+        "ttt": {},
+        "ttt_online": {},
+    }
 
-    print("\nModel with TTT")
+    # all combinations
+    inner_functions = ["commutative", "zero_commutativity"]
+    similarity_losses = ["normalized_l2", "cosine", "smooth_l1"]
 
     base_ttt_state = copy.deepcopy(model.ttt.state_dict())
 
-    loss_sum_ttt = 0.0
-    acc_sum_ttt = 0.0
-    num_examples_ttt = 0
+    print("\nModel with TTT")
+    for inner_function in inner_functions:
+        for similarity_loss in similarity_losses:
+            print(
+                f"\nTTT variant: inner_function={inner_function}, "
+                f"similarity_loss={similarity_loss}"
+            )
 
-    for batch in loader:
-        a_list = batch["a"]
-        b_list = batch["b"]
-        tgt_input_ids = batch["tgt_input_ids"].to(device)
-        tgt_output_ids = batch["tgt_output_ids"].to(device)
-
-        for i in range(len(a_list)):
             model.ttt.load_state_dict(base_ttt_state)
 
-            adapted_hidden = adapt_ttt_for_one_example(
+            loss_sum_ttt = 0.0
+            acc_sum_ttt = 0.0
+            num_examples_ttt = 0
+
+            for batch in loader:
+                a_list = batch["a"]
+                b_list = batch["b"]
+                tgt_input_ids = batch["tgt_input_ids"].to(device)
+                tgt_output_ids = batch["tgt_output_ids"].to(device)
+
+                for i in range(len(a_list)):
+                    # reset for each example
+                    model.ttt.load_state_dict(base_ttt_state)
+
+                    adapted_hidden = adapt_ttt_for_one_example(
+                        model=model,
+                        a=a_list[i],
+                        b=b_list[i],
+                        vocab=vocab,
+                        representation=representation,
+                        device=device,
+                        ttt_steps=ttt_steps,
+                        ttt_lr=ttt_lr,
+                        inner_function=inner_function,
+                        similarity_loss=similarity_loss,
+                    )
+
+                    one_tgt_in = tgt_input_ids[i:i+1]
+                    one_tgt_out = tgt_output_ids[i:i+1]
+
+                    with torch.no_grad():
+                        logits, _ = model.decoder(one_tgt_in, adapted_hidden)
+
+                        loss = criterion(
+                            logits.reshape(-1, vocab.VOCAB_SIZE),
+                            one_tgt_out.reshape(-1)
+                        )
+
+                        acc = token_accuracy(logits, one_tgt_out, vocab.PAD_ID)
+
+                    loss_sum_ttt += loss.item()
+                    acc_sum_ttt += acc
+                    num_examples_ttt += 1
+
+            model.ttt.load_state_dict(base_ttt_state)
+
+            avg_loss_ttt = (
+                loss_sum_ttt / num_examples_ttt if num_examples_ttt > 0 else 0.0
+            )
+            avg_acc_ttt = (
+                acc_sum_ttt / num_examples_ttt if num_examples_ttt > 0 else 0.0
+            )
+
+            exact_ttt = exact_match_accuracy_with_ttt(
                 model=model,
-                a=a_list[i],
-                b=b_list[i],
+                dataloader=loader,
                 vocab=vocab,
                 representation=representation,
                 device=device,
+                max_decode_len=max_decode_len,
                 ttt_steps=ttt_steps,
                 ttt_lr=ttt_lr,
-                inner_function= inner_loss
+                inner_function=inner_function,
+                similarity_loss=similarity_loss,
             )
 
-            one_tgt_in = tgt_input_ids[i:i+1]
-            one_tgt_out = tgt_output_ids[i:i+1]
+            model.ttt.load_state_dict(base_ttt_state)
 
-            with torch.no_grad():
-                logits, _ = model.decoder(one_tgt_in, adapted_hidden)
+            print(f"Loss: {avg_loss_ttt:.6f}")
+            print(f"Token accuracy with teacher forcing: {avg_acc_ttt:.6f}")
+            print(f"Exact match with TTT: {exact_ttt:.6f}")
 
-                loss = criterion(
-                    logits.reshape(-1, vocab.VOCAB_SIZE),
-                    one_tgt_out.reshape(-1)
-                )
-
-                acc = token_accuracy(logits, one_tgt_out, vocab.PAD_ID)
-
-            loss_sum_ttt += loss.item()
-            acc_sum_ttt += acc
-            num_examples_ttt += 1
-
-    model.ttt.load_state_dict(base_ttt_state)
-
-    avg_loss_ttt = loss_sum_ttt / num_examples_ttt if num_examples_ttt > 0 else 0.0
-    avg_acc_ttt = acc_sum_ttt / num_examples_ttt if num_examples_ttt > 0 else 0.0
-
-    exact_ttt = exact_match_accuracy_with_ttt(
-        model=model,
-        dataloader=loader,
-        vocab=vocab,
-        representation=representation,
-        device=device,
-        max_decode_len=max_decode_len,
-        ttt_steps=ttt_steps,
-        ttt_lr=ttt_lr,
-    )
-
-    print(f"Loss: {avg_loss_ttt:.6f}")
-    print(f"Token accuracy with teacher forcing: {avg_acc_ttt:.6f}")
-    print(f"Exact match with TTT: {exact_ttt:.6f}")
+            results["ttt"][(inner_function, similarity_loss)] = {
+                "loss": avg_loss_ttt,
+                "token_accuracy": avg_acc_ttt,
+                "exact_match": exact_ttt,
+            }
 
     print("\nModel with TTT online")
+    for inner_function in inner_functions:
+        for similarity_loss in similarity_losses:
+            print(
+                f"\nTTT online variant: inner_function={inner_function}, "
+                f"similarity_loss={similarity_loss}"
+            )
 
-    model.ttt.load_state_dict(base_ttt_state)
+            model.ttt.load_state_dict(base_ttt_state)
 
-    loss_sum_ttt_online = 0.0
-    acc_sum_ttt_online = 0.0
-    num_examples_ttt_online = 0
+            loss_sum_ttt_online = 0.0
+            acc_sum_ttt_online = 0.0
+            num_examples_ttt_online = 0
 
-    for batch in loader:
-        a_list = batch["a"]
-        b_list = batch["b"]
-        tgt_input_ids = batch["tgt_input_ids"].to(device)
-        tgt_output_ids = batch["tgt_output_ids"].to(device)
+            for batch in loader:
+                a_list = batch["a"]
+                b_list = batch["b"]
+                tgt_input_ids = batch["tgt_input_ids"].to(device)
+                tgt_output_ids = batch["tgt_output_ids"].to(device)
 
-        for i in range(len(a_list)):
-            # no reset here: this is online TTT
-            adapted_hidden = adapt_ttt_for_one_example(
+                for i in range(len(a_list)):
+                    # no reset: online TTT
+                    adapted_hidden = adapt_ttt_for_one_example(
+                        model=model,
+                        a=a_list[i],
+                        b=b_list[i],
+                        vocab=vocab,
+                        representation=representation,
+                        device=device,
+                        ttt_steps=ttt_steps,
+                        ttt_lr=ttt_lr,
+                        inner_function=inner_function,
+                        similarity_loss=similarity_loss,
+                    )
+
+                    one_tgt_in = tgt_input_ids[i:i+1]
+                    one_tgt_out = tgt_output_ids[i:i+1]
+
+                    with torch.no_grad():
+                        logits, _ = model.decoder(one_tgt_in, adapted_hidden)
+
+                        loss = criterion(
+                            logits.reshape(-1, vocab.VOCAB_SIZE),
+                            one_tgt_out.reshape(-1)
+                        )
+
+                        acc = token_accuracy(logits, one_tgt_out, vocab.PAD_ID)
+
+                    loss_sum_ttt_online += loss.item()
+                    acc_sum_ttt_online += acc
+                    num_examples_ttt_online += 1
+
+            avg_loss_ttt_online = (
+                loss_sum_ttt_online / num_examples_ttt_online
+                if num_examples_ttt_online > 0 else 0.0
+            )
+            avg_acc_ttt_online = (
+                acc_sum_ttt_online / num_examples_ttt_online
+                if num_examples_ttt_online > 0 else 0.0
+            )
+
+            exact_ttt_online = exact_match_accuracy_with_ttt_online(
                 model=model,
-                a=a_list[i],
-                b=b_list[i],
+                dataloader=loader,
                 vocab=vocab,
                 representation=representation,
                 device=device,
+                max_decode_len=max_decode_len,
                 ttt_steps=ttt_steps,
                 ttt_lr=ttt_lr,
-                inner_function=inner_loss
+                inner_function=inner_function,
+                similarity_loss=similarity_loss,
             )
 
-            one_tgt_in = tgt_input_ids[i:i+1]
-            one_tgt_out = tgt_output_ids[i:i+1]
+            model.ttt.load_state_dict(base_ttt_state)
 
-            with torch.no_grad():
-                logits, _ = model.decoder(one_tgt_in, adapted_hidden)
+            print(f"Loss: {avg_loss_ttt_online:.6f}")
+            print(f"Token accuracy with teacher forcing: {avg_acc_ttt_online:.6f}")
+            print(f"Exact match with TTT online: {exact_ttt_online:.6f}")
 
-                loss = criterion(
-                    logits.reshape(-1, vocab.VOCAB_SIZE),
-                    one_tgt_out.reshape(-1)
-                )
+            results["ttt_online"][(inner_function, similarity_loss)] = {
+                "loss": avg_loss_ttt_online,
+                "token_accuracy": avg_acc_ttt_online,
+                "exact_match": exact_ttt_online,
+            }
 
-                acc = token_accuracy(logits, one_tgt_out, vocab.PAD_ID)
-
-            loss_sum_ttt_online += loss.item()
-            acc_sum_ttt_online += acc
-            num_examples_ttt_online += 1
-
-    model.ttt.load_state_dict(base_ttt_state)
-
-    avg_loss_ttt_online = (
-        loss_sum_ttt_online / num_examples_ttt_online
-        if num_examples_ttt_online > 0 else 0.0
-    )
-    avg_acc_ttt_online = (
-        acc_sum_ttt_online / num_examples_ttt_online
-        if num_examples_ttt_online > 0 else 0.0
-    )
-
-    exact_ttt_online = exact_match_accuracy_with_ttt_online(
-        model=model,
-        dataloader=loader,
-        vocab=vocab,
-        representation=representation,
-        device=device,
-        max_decode_len=max_decode_len,
-        ttt_steps=ttt_steps,
-        ttt_lr=ttt_lr,
-    )
-
-    model.ttt.load_state_dict(base_ttt_state)
-
-    print(f"Loss: {avg_loss_ttt_online:.6f}")
-    print(f"Token accuracy with teacher forcing: {avg_acc_ttt_online:.6f}")
-    print(f"Exact match with TTT online: {exact_ttt_online:.6f}")
     print()
-
-    return {
-        "loss": avg_loss,
-        "token_accuracy": avg_acc,
-        "exact_match": exact_no_ttt,
-
-        "loss_ttt": avg_loss_ttt,
-        "token_accuracy_ttt": avg_acc_ttt,
-        "exact_match_ttt": exact_ttt,
-
-        "loss_ttt_online": avg_loss_ttt_online,
-        "token_accuracy_ttt_online": avg_acc_ttt_online,
-        "exact_match_ttt_online": exact_ttt_online,
-    }
+    return results
