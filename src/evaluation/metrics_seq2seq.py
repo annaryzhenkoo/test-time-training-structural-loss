@@ -3,6 +3,8 @@ from src.data.datasets_seq2seq import *
 from src.train.adapt_ttt import adapt_ttt_for_one_example
 import copy
 
+
+
 @torch.no_grad()
 def exact_match_accuracy(model, dataloader, vocab: Vocab, representation="binary", device="cpu", max_decode_len=32):
     model.eval()

@@ -35,12 +35,28 @@ model, vocab, train_dataset, valid_dataset, valid_loader, device = train_model(
     print_every=args.print_every
 )
 
-#import torch
-#from src.models.seq2seq_gru import Seq2SeqGRUWithTTT
+import torch
+from src.models.seq2seq_gru import Seq2SeqGRUWithTTT
 
-#model = Seq2SeqGRUWithTTT(vocab=vocab)
-#state_dict = torch.load("outputs/best_model (4).pt", map_location="cpu")
-#model.load_state_dict(state_dict)
+model = Seq2SeqGRUWithTTT(vocab=vocab)
+state_dict = torch.load("outputs/best_model (4).pt", map_location="cpu")
+model.load_state_dict(state_dict)
 
-evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation)
-evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation)
+# print("Steps 5")
+# evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation)
+# evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation)
+
+print("Steps 5")
+print("Inner loss for TTT: commutative")
+evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation,
+           ttt_steps=10, inner_loss="commutative")
+evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation,
+           ttt_steps=10, inner_loss="commutative")
+
+
+print("Steps 5")
+print("Inner loss for TTT: zero_commutativity")
+evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation,
+           ttt_steps=10, inner_loss="zero_commutativity")
+evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation,
+           ttt_steps=10, inner_loss="zero_commutativity")
