@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from src.data.vocab import Vocab
+import random
 
 class Encoder(nn.Module):
     def __init__(self, vocab: Vocab, emb_dim: int, hidden_dim: int):
@@ -68,6 +69,26 @@ class Decoder(nn.Module):
         logits = self.fc(outputs)               # (B, T, V)
         return logits, hidden
 
+    def forward_scheduled_sampling(self, tgt_input_ids, hidden, current_p=1.0):
+        B, T = tgt_input_ids.shape
+        current_ids = tgt_input_ids[:, 0].unsqueeze(1)
+        all_logits = []
+
+        for t in range(T):
+            emb = self.embedding(current_ids)
+            outputs, hidden = self.gru(emb, hidden)
+            logits = self.fc(outputs)
+            all_logits.append(logits)
+
+            pred_ids = logits[:, -1, :].argmax(dim=-1, keepdim=True)
+
+            if t + 1 < T:
+                use_teacher = random.random() < current_p
+                current_ids = tgt_input_ids[:, t + 1].unsqueeze(1) if use_teacher else pred_ids
+
+        all_logits = torch.cat(all_logits, dim=1)
+        return all_logits, hidden
+
 class Seq2SeqGRUWithTTT(nn.Module):
     def __init__(self, vocab: Vocab, emb_dim=32, hidden_dim=128, ttt_bottleneck_dim=None):
         super().__init__()
@@ -80,10 +101,17 @@ class Seq2SeqGRUWithTTT(nn.Module):
         _, hidden = self.encoder(src_ids, src_lens)
         return hidden
 
-    def forward(self, src_ids, src_lens, tgt_input_ids):
-        hidden = self.encode(src_ids, src_lens)   # (1, B, H)
-        hidden = self.ttt(hidden)                 # (1, B, H)
-        logits, _ = self.decoder(tgt_input_ids, hidden)
+    def forward(self, src_ids, src_lens, tgt_input_ids, scheduled_sampling: bool = False, current_p: float = 1.0):
+        hidden = self.encode(src_ids, src_lens)  # (1, B, H)
+        hidden = self.ttt(hidden)  # (1, B, H)
+
+        if scheduled_sampling:
+            logits, _ = self.decoder.forward_scheduled_sampling(
+                tgt_input_ids, hidden, current_p=current_p
+            )
+        else:
+            logits, _ = self.decoder(tgt_input_ids, hidden)
+
         return logits
 
     @torch.no_grad()

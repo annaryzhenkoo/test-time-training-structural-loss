@@ -2,10 +2,21 @@ import torch
 import random
 from src.data.datasets_seq2seq import *
 from src.train.adapt_ttt import adapt_ttt_for_one_example
+import copy
 
 @torch.no_grad()
-def show_predictions(model, dataset, vocab: Vocab, representation="binary", device="cpu", n=10, max_len=32):
+def show_predictions(model, vocab: Vocab, representation="binary", device="cpu", n=10, max_len=32,
+                     dataset = None, num_digits: int = 3):
     model.eval()
+    if dataset is None:
+        vocab = build_vocab(representation)
+        dataset = AdditionDataset(
+            vocab=vocab,
+            num_samples=500,
+            num_digits=num_digits,
+            representation=representation
+        )
+
     indices = random.sample(range(len(dataset)), k=min(n, len(dataset)))
 
     print("\nExamples WITHOUT test-time TTT:")

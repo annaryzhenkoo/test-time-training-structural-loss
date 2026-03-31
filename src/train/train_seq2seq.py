@@ -84,11 +84,16 @@ def train_model(
     else:
         max_decode_len = len(str(max_value * 2)) + 2
 
+    pmin = 0.3
     for epoch in range(1, epochs + 1):
         model.train()
         train_loss_sum = 0.0
         train_acc_sum = 0.0
         train_steps = 0
+        if epoch > 1:
+            p_current = max(pmin, 1 - epoch / epochs)
+        else:
+            p_current = 1.0
 
         for batch in train_loader:
             src_ids = batch["src_ids"].to(device)
@@ -99,7 +104,7 @@ def train_model(
             optimizer.zero_grad()
 
             # TRAIN: ordinary forward without TTT adaptation
-            logits = model(src_ids, src_lens, tgt_input_ids)
+            logits = model(src_ids, src_lens, tgt_input_ids,current_p= p_current, scheduled_sampling=True)
 
             loss = criterion(
                 logits.reshape(-1, vocab.VOCAB_SIZE),
@@ -168,6 +173,7 @@ def train_model(
         if epoch % print_every == 0 or epoch == 1:
             print(
                 f"Epoch {epoch:03d} | "
+                f"p_current={p_current:.3f} | "
                 f"train_loss={train_loss:.4f} | train_token_acc={train_acc:.4f} | "
                 f"valid_loss={valid_loss:.4f} | valid_token_acc={valid_acc:.4f} | "
                 f"valid_exact_match={valid_exact:.4f}"
