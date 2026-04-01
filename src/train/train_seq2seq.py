@@ -90,8 +90,10 @@ def train_model(
         train_loss_sum = 0.0
         train_acc_sum = 0.0
         train_steps = 0
+        subsample_epochs = min(200, epochs)
+        pmin = 0
         if epoch > 1:
-            p_current = max(pmin, 1 - epoch / epochs)
+            p_current = max(pmin, 1 - epoch / subsample_epochs)
         else:
             p_current = 1.0
 

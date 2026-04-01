@@ -69,25 +69,26 @@ class Decoder(nn.Module):
         logits = self.fc(outputs)               # (B, T, V)
         return logits, hidden
 
-    def forward_scheduled_sampling(self, tgt_input_ids, hidden, current_p=1.0):
-        B, T = tgt_input_ids.shape
-        current_ids = tgt_input_ids[:, 0].unsqueeze(1)
-        all_logits = []
+def forward_scheduled_sampling(self, tgt_input_ids, hidden, current_p=1.0):
+    B, T = tgt_input_ids.shape
+    current_ids = tgt_input_ids[:, 0].unsqueeze(1)   # (B, 1)
+    all_logits = []
 
-        for t in range(T):
-            emb = self.embedding(current_ids)
-            outputs, hidden = self.gru(emb, hidden)
-            logits = self.fc(outputs)
-            all_logits.append(logits)
+    for t in range(T):
+        emb = self.embedding(current_ids)            # (B, 1, E)
+        outputs, hidden = self.gru(emb, hidden)      # (B, 1, H)
+        logits = self.fc(outputs)                    # (B, 1, V)
+        all_logits.append(logits)
 
-            pred_ids = logits[:, -1, :].argmax(dim=-1, keepdim=True)
+        pred_ids = logits[:, -1, :].argmax(dim=-1, keepdim=True)  # (B, 1)
 
-            if t + 1 < T:
-                use_teacher = random.random() < current_p
-                current_ids = tgt_input_ids[:, t + 1].unsqueeze(1) if use_teacher else pred_ids
+        if t + 1 < T:
+            teacher_ids = tgt_input_ids[:, t + 1].unsqueeze(1)    # (B, 1)
+            teacher_mask = torch.rand(B, 1, device=tgt_input_ids.device) < current_p
+            current_ids = torch.where(teacher_mask, teacher_ids, pred_ids)
 
-        all_logits = torch.cat(all_logits, dim=1)
-        return all_logits, hidden
+    all_logits = torch.cat(all_logits, dim=1)        # (B, T, V)
+    return all_logits, hidden
 
 class Seq2SeqGRUWithTTT(nn.Module):
     def __init__(self, vocab: Vocab, emb_dim=32, hidden_dim=128, ttt_bottleneck_dim=None):
