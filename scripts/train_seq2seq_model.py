@@ -3,7 +3,6 @@ from src.train.train_seq2seq import train_model
 from src.evaluation.evaluate_seq2seq import *
 from src.train.inference_seq2seq import show_predictions
 
-from tests.test1_ingone_EOS_continue import *
 
 parser = argparse.ArgumentParser()
 
@@ -41,20 +40,16 @@ model, vocab, train_dataset, valid_dataset, valid_loader, device = train_model(
 import torch
 from src.models.seq2seq_gru import Seq2SeqGRUWithTTT
 
-model = Seq2SeqGRUWithTTT(vocab=vocab)
-state_dict = torch.load("outputs/best_model (4).pt", map_location="cpu")
-model.load_state_dict(state_dict)
+#state_dict = torch.load("outputs/best_model (4).pt", map_location="cpu")
+#model.load_state_dict(state_dict)
 
-# print("3 digits predictions: ")
-# show_predictions(model, vocab, num_digits=1, device=device, n=5, max_len=16)
-#
-# print("4 digits predictions: ")
-# show_predictions(model, vocab, num_digits=2, device=device, n=5, max_len=16)
+#model = model.to("cpu")
+
+show_predictions(model, vocab, num_digits=3, device=device, n=5, max_len=34)
+
+show_predictions(model, vocab, num_digits=4, device=device, n=5, max_len=34)
+
+evaluation(num_digits = args.num_digits, model= model, vocab= vocab, device= device, representation= args.representation)
+evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation)
 
 
-continue_generation_after_EOS(model, args.representation, 4)
-# print("Steps 5")
-# evaluation(num_digits = args.test_num_digits, model= model, vocab= vocab, device= device, representation= args.representation)
-# evaluation(num_digits = args.test_num_digits + 1, model= model, vocab= vocab, device= device, representation= args.representation)
-#
-#
