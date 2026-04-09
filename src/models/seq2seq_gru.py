@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from src.data.vocab import Vocab
-import random
+from src.data.datasets_seq2seq import CarryVocab
 
 class Encoder(nn.Module):
     def __init__(self, vocab: Vocab, emb_dim: int, hidden_dim: int):
@@ -191,6 +191,236 @@ class Seq2SeqGRUWithTTT(nn.Module):
 
             generated.append(token_id)
             current = next_token.unsqueeze(1)
+
+        return generated
+
+    @torch.no_grad()
+    def greedy_decode(self, src_ids, src_lens, max_len=32, device="cpu"):
+        self.eval()
+        hidden = self.encode(src_ids.to(device), src_lens.to(device))
+        hidden = self.ttt(hidden)
+        return self.greedy_decode_from_hidden(hidden, max_len=max_len, device=device)
+
+class DecoderWithCarry(nn.Module):
+    def __init__(
+        self,
+        vocab: Vocab,
+        carry_vocab: CarryVocab,
+        emb_dim: int,
+        hidden_dim: int,
+        carry_emb_dim: int = 4,
+    ):
+        super().__init__()
+        self.vocab = vocab
+        self.carry_vocab = carry_vocab
+
+        self.token_embedding = nn.Embedding(
+            vocab.VOCAB_SIZE,
+            emb_dim,
+            padding_idx=vocab.PAD_ID
+        )
+
+        self.carry_embedding = nn.Embedding(
+            carry_vocab.VOCAB_SIZE,
+            carry_emb_dim,
+            padding_idx=carry_vocab.PAD_ID
+        )
+
+        self.gru = nn.GRU(
+            input_size=emb_dim + carry_emb_dim,
+            hidden_size=hidden_dim,
+            batch_first=True
+        )
+
+        self.token_head = nn.Linear(hidden_dim, vocab.VOCAB_SIZE)
+        self.carry_head = nn.Linear(hidden_dim, carry_vocab.VOCAB_SIZE)
+
+    def step(self, token_ids, carry_ids, hidden):
+        token_emb = self.token_embedding(token_ids)   # (B, 1, E)
+        carry_emb = self.carry_embedding(carry_ids)   # (B, 1, C)
+
+        decoder_input = torch.cat([token_emb, carry_emb], dim=-1)   # (B, 1, E+C)
+        outputs, hidden = self.gru(decoder_input, hidden)           # outputs: (B, 1, H)
+
+        token_logits = self.token_head(outputs)   # (B, 1, V_token)
+        carry_logits = self.carry_head(outputs)   # (B, 1, V_carry)
+
+        return token_logits, carry_logits, hidden
+
+    def forward_autoregressive_carry(self, tgt_input_ids, hidden):
+        B, T = tgt_input_ids.shape
+        device = tgt_input_ids.device
+
+        all_token_logits = []
+        all_carry_logits = []
+
+        current_carry_ids = torch.full(
+            (B, 1),
+            fill_value=self.carry_vocab.ZERO_ID,
+            dtype=torch.long,
+            device=device
+        )
+
+        for t in range(T):
+            current_token_ids = tgt_input_ids[:, t].unsqueeze(1)
+
+            token_logits, carry_logits, hidden = self.step(
+                current_token_ids,
+                current_carry_ids,
+                hidden
+            )
+
+            all_token_logits.append(token_logits)
+            all_carry_logits.append(carry_logits)
+
+            current_carry_ids = carry_logits[:, -1, :].argmax(dim=-1, keepdim=True)
+
+        all_token_logits = torch.cat(all_token_logits, dim=1)   # (B, T, V_token)
+        all_carry_logits = torch.cat(all_carry_logits, dim=1)   # (B, T, V_carry)
+
+        return all_token_logits, all_carry_logits, hidden
+
+    def forward_with_carry_sampling(self, tgt_input_ids, carry_input_ids, hidden, current_p=1.0):
+        B, T = tgt_input_ids.shape
+        device = tgt_input_ids.device
+
+        all_token_logits = []
+        all_carry_logits = []
+
+        current_token_ids = tgt_input_ids[:, 0].unsqueeze(1)
+        current_carry_ids = carry_input_ids[:, 0].unsqueeze(1)
+
+        for t in range(T):
+            token_logits, carry_logits, hidden = self.step(
+                current_token_ids,
+                current_carry_ids,
+                hidden
+            )
+
+            all_token_logits.append(token_logits)
+            all_carry_logits.append(carry_logits)
+
+            pred_token_ids = token_logits[:, -1, :].argmax(dim=-1, keepdim=True)
+            pred_carry_ids = carry_logits[:, -1, :].argmax(dim=-1, keepdim=True)
+
+            if t + 1 < T:
+                gold_next_token_ids = tgt_input_ids[:, t + 1].unsqueeze(1)
+                gold_next_carry_ids = carry_input_ids[:, t + 1].unsqueeze(1)
+
+                teacher_mask = torch.rand(B, 1, device=device) < current_p
+
+                current_token_ids = torch.where(
+                    teacher_mask,
+                    gold_next_token_ids,
+                    pred_token_ids
+                )
+
+                current_carry_ids = torch.where(
+                    teacher_mask,
+                    gold_next_carry_ids,
+                    pred_carry_ids
+                )
+
+        all_token_logits = torch.cat(all_token_logits, dim=1)   # (B, T, V_token)
+        all_carry_logits = torch.cat(all_carry_logits, dim=1)   # (B, T, V_carry)
+
+        return all_token_logits, all_carry_logits, hidden
+
+
+class Seq2SeqGRUWithTTTandCarry(nn.Module):
+    def __init__(
+        self,
+        vocab: Vocab,
+        carry_vocab: CarryVocab,
+        emb_dim=32,
+        hidden_dim=128,
+        ttt_bottleneck_dim=None,
+        carry_emb_dim=4,
+    ):
+        super().__init__()
+        self.vocab = vocab
+        self.carry_vocab = carry_vocab
+
+        self.encoder = Encoder(vocab, emb_dim, hidden_dim)
+        self.ttt = TTTLayer(hidden_dim, bottleneck_dim=ttt_bottleneck_dim)
+        self.decoder = DecoderWithCarry(
+            vocab=vocab,
+            carry_vocab=carry_vocab,
+            emb_dim=emb_dim,
+            hidden_dim=hidden_dim,
+            carry_emb_dim=carry_emb_dim,
+        )
+
+    def encode(self, src_ids, src_lens):
+        _, hidden = self.encoder(src_ids, src_lens)
+        return hidden
+
+    def forward(
+        self,
+        src_ids,
+        src_lens,
+        tgt_input_ids,
+        scheduled_sampling: bool = False,
+        current_p: float = 1.0,
+    ):
+        """method for evaluation"""
+        hidden = self.encode(src_ids, src_lens)
+        hidden = self.ttt(hidden)
+
+        token_logits, _, _ = self.decoder.forward_autoregressive_carry(
+            tgt_input_ids=tgt_input_ids,
+            hidden=hidden,
+        )
+        return token_logits
+
+    def forward_with_carry(
+        self,
+        src_ids,
+        src_lens,
+        tgt_input_ids,
+        carry_input_ids,
+        current_p: float = 1.0,
+    ):
+        """
+        main method for training
+        """
+        hidden = self.encode(src_ids, src_lens)
+        hidden = self.ttt(hidden)
+
+        token_logits, carry_logits, _ = self.decoder.forward_with_carry_sampling(
+            tgt_input_ids=tgt_input_ids,
+            carry_input_ids=carry_input_ids,
+            hidden=hidden,
+            current_p=current_p,
+        )
+        return token_logits, carry_logits
+
+    @torch.no_grad()
+    def greedy_decode_from_hidden(self, hidden, max_len=32, device="cpu"):
+        self.eval()
+
+        current_token = torch.tensor([[self.vocab.SOS_ID]], dtype=torch.long, device=device)
+        current_carry = torch.tensor([[self.carry_vocab.ZERO_ID]], dtype=torch.long, device=device)
+
+        generated = []
+
+        for _ in range(max_len):
+            token_logits, carry_logits, hidden = self.decoder.step(
+                current_token,
+                current_carry,
+                hidden
+            )
+
+            next_token = token_logits[:, -1, :].argmax(dim=-1, keepdim=True)
+            next_carry = carry_logits[:, -1, :].argmax(dim=-1, keepdim=True)
+
+            token_id = int(next_token.item())
+            if token_id == self.vocab.EOS_ID:
+                break
+
+            generated.append(token_id)
+            current_token = next_token
+            current_carry = next_carry
 
         return generated
 

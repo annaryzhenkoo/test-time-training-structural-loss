@@ -13,6 +13,76 @@ from src.evaluation.metrics_seq2seq import (
 )
 from src.train.adapt_ttt import adapt_ttt_for_one_example
 
+def simple_evaluation(
+    num_digits: int,
+    model,
+    vocab: Vocab,
+    device: str = "cpu",
+    num_samples: int = 2000,
+    representation: str = "binary",
+    batch_size: int = 128,
+    max_decode_len: int = 140,
+):
+    print(f"Evaluation on {num_digits} digits")
+
+    dataset = AdditionDataset(
+        vocab=vocab,
+        num_samples=num_samples,
+        num_digits=num_digits,
+        representation=representation,
+    )
+
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=make_collate_fn(vocab),
+    )
+
+    criterion = nn.CrossEntropyLoss(ignore_index=vocab.PAD_ID)
+    model.eval()
+
+    loss_sum = 0.0
+    acc_sum = 0.0
+    num_batches = 0
+
+    with torch.no_grad():
+        for batch in loader:
+            src_ids = batch["src_ids"].to(device)
+            src_lens = batch["src_lens"].to(device)
+            tgt_input_ids = batch["tgt_input_ids"].to(device)
+            tgt_output_ids = batch["tgt_output_ids"].to(device)
+
+            logits = model(src_ids, src_lens, tgt_input_ids)
+
+            loss = criterion(
+                logits.reshape(-1, vocab.VOCAB_SIZE),
+                tgt_output_ids.reshape(-1)
+            )
+
+            acc = token_accuracy(logits, tgt_output_ids, vocab.PAD_ID)
+
+            loss_sum += loss.item()
+            acc_sum += acc
+            num_batches += 1
+
+    avg_loss = loss_sum / num_batches if num_batches > 0 else 0.0
+    avg_acc = acc_sum / num_batches if num_batches > 0 else 0.0
+
+    exact_no_ttt = exact_match_accuracy(
+        model=model,
+        dataloader=loader,
+        vocab=vocab,
+        representation=representation,
+        device=device,
+        max_decode_len=max_decode_len,
+    )
+
+    print("\nModel without TTT")
+    print(f"Loss: {avg_loss:.6f}")
+    print(f"Token accuracy with teacher forcing: {avg_acc:.6f}")
+    print(f"Exact match without teacher forcing: {exact_no_ttt:.6f}")
+
 
 def evaluation(
     num_digits: int,

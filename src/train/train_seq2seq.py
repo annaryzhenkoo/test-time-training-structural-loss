@@ -84,7 +84,6 @@ def train_model(
     else:
         max_decode_len = len(str(max_value * 2)) + 2
 
-    pmin = 0.3
     for epoch in range(1, epochs + 1):
         model.train()
         train_loss_sum = 0.0
