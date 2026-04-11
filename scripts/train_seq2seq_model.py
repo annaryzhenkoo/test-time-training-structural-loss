@@ -27,7 +27,7 @@ parser.add_argument("--carry_loss_weight", type=float, default=1.0)
 args = parser.parse_args()
 
 if args.with_carry:
-    checkpoint_path = "outputs/seq2seq_with_gru_and_carry.pt"
+    checkpoint_path = "outputs/seq2seq_with_gru_and_carry_.pt"
 
     print("TRAIN WITH CARRY")
     model, vocab, carry_vocab, train_dataset, valid_dataset, valid_loader, device = train_model_with_carry(
@@ -66,6 +66,7 @@ else:
         checkpoint_path=checkpoint_path,
     )
 
+model = model.to("cpu")
 
 show_predictions(model, vocab, num_digits=3, device="cpu", n=5, max_len=34)
 show_predictions(model, vocab, num_digits=4, device="cpu", n=5, max_len=34)

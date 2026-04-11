@@ -2,7 +2,7 @@ import copy
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from src.data.datasets_seq2seq import AdditionDataset
+from src.data.datasets_seq2seq import AdditionDataset, AdditionDatasetWithCarry, build_carry_vocab
 from src.data.collate_seq2seq import make_collate_fn
 from src.data.vocab import Vocab
 from src.evaluation.metrics_seq2seq import (
@@ -22,15 +22,26 @@ def simple_evaluation(
     representation: str = "binary",
     batch_size: int = 128,
     max_decode_len: int = 140,
+    carry: bool = True
 ):
     print(f"Evaluation on {num_digits} digits")
 
-    dataset = AdditionDataset(
-        vocab=vocab,
-        num_samples=num_samples,
-        num_digits=num_digits,
-        representation=representation,
-    )
+    if carry:
+        carry_vocab = build_carry_vocab()
+        dataset = AdditionDatasetWithCarry(
+            vocab=vocab,
+            num_samples=500,
+            num_digits=num_digits,
+            representation=representation,
+            carry_vocab=carry_vocab
+        )
+    else:
+        dataset = AdditionDataset(
+                vocab=vocab,
+                num_samples=500,
+                num_digits=num_digits,
+                representation=representation)
+
 
     loader = DataLoader(
         dataset,

@@ -289,10 +289,10 @@ class AdditionDataset(Dataset):
 class AdditionDatasetWithCarry(Dataset):
     """
     Input:
-        reversed(a) + '+' + reversed(b) + '='
+        reversed(padded(a)) + '+' + reversed(padded(b)) + '='
 
     Token target:
-        reversed(a+b)
+        reversed(padded(a+b))
 
     Token decoder input:
         <SOS> + target
@@ -308,6 +308,7 @@ class AdditionDatasetWithCarry(Dataset):
         current carry sequence
         e.g. [c0, c1, c2, ...]
     """
+
     def __init__(
         self,
         vocab: Vocab,
@@ -342,14 +343,10 @@ class AdditionDatasetWithCarry(Dataset):
             b = random.randint(min_value, max_value)
             s = a + b
 
-            a_rev = int_to_reversed_string(a, representation)
-            b_rev = int_to_reversed_string(b, representation)
+            a_rev, b_rev, tgt_tokens, carry_input_tokens, carry_output_tokens = \
+                self._build_padded_example(a, b, representation)
 
             src_tokens = list(a_rev) + ["+"] + list(b_rev) + ["="]
-
-            tgt_tokens, carry_input_tokens, carry_output_tokens = \
-                build_reversed_sum_and_carry_sequences(a, b, representation)
-
             src_ids = encode_tokens(src_tokens, vocab)
 
             tgt_input_ids = [vocab.SOS_ID] + encode_tokens(tgt_tokens, vocab)
@@ -374,6 +371,62 @@ class AdditionDatasetWithCarry(Dataset):
                     carry_output_text="".join(carry_output_tokens),
                 )
             )
+
+    @staticmethod
+    def _to_base_string(n: int, representation: str) -> str:
+        if representation == "binary":
+            return bin(n)[2:]
+        elif representation == "decimal":
+            return str(n)
+        else:
+            raise ValueError(f"Unknown representation: {representation}")
+
+    @classmethod
+    def _pad_number(cls, n: int, total_len: int, representation: str) -> str:
+        return cls._to_base_string(n, representation).zfill(total_len)
+
+    @classmethod
+    def _build_padded_example(cls, a: int, b: int, representation: str):
+        if representation == "binary":
+            base = 2
+        elif representation == "decimal":
+            base = 10
+        else:
+            raise ValueError(f"Unknown representation: {representation}")
+
+        a_str = cls._to_base_string(a, representation)
+        b_str = cls._to_base_string(b, representation)
+
+        L = max(len(a_str), len(b_str))
+
+        a_pad = a_str.zfill(L)
+        b_pad = b_str.zfill(L)
+
+        s_pad = cls._to_base_string(a + b, representation).zfill(L + 1)
+
+        a_rev = a_pad[::-1]
+        b_rev = b_pad[::-1]
+        s_rev = s_pad[::-1]
+
+        a_digits = [int(ch) for ch in a_rev]
+        b_digits = [int(ch) for ch in b_rev]
+        tgt_tokens = list(s_rev)
+
+        carry_input_tokens = []
+        carry_output_tokens = []
+
+        carry_prev = 0
+        for da, db in zip(a_digits, b_digits):
+            carry_input_tokens.append(str(carry_prev))
+            total = da + db + carry_prev
+            carry_now = total // base
+            carry_output_tokens.append(str(carry_now))
+            carry_prev = carry_now
+
+        carry_input_tokens.append(str(carry_prev))
+        carry_output_tokens.append("0")
+
+        return a_rev, b_rev, tgt_tokens, carry_input_tokens, carry_output_tokens
 
     def __len__(self):
         return len(self.samples)

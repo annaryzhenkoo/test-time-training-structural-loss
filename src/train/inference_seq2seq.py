@@ -6,16 +6,26 @@ import copy
 
 @torch.no_grad()
 def show_predictions(model, vocab: Vocab, representation="binary", device="cpu", n=10, max_len=32,
-                     dataset = None, num_digits: int = 3):
+                     dataset = None, num_digits: int = 3, carry: bool = True):
     model.eval()
     if dataset is None:
         vocab = build_vocab(representation)
-        dataset = AdditionDataset(
+        if carry:
+            carry_vocab = build_carry_vocab()
+            dataset = AdditionDatasetWithCarry(
             vocab=vocab,
             num_samples=500,
             num_digits=num_digits,
-            representation=representation
+            representation=representation,
+            carry_vocab=carry_vocab
         )
+        else:
+            dataset = AdditionDataset(
+                vocab=vocab,
+                num_samples=500,
+                num_digits=num_digits,
+                representation=representation
+            )
 
     indices = random.sample(range(len(dataset)), k=min(n, len(dataset)))
 
